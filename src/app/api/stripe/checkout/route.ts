@@ -27,6 +27,20 @@ export async function POST(req: Request) {
       );
     }
 
+    const subscriptionData: {
+      metadata: { user_id: string; plan: "monthly" | "yearly" };
+      trial_period_days?: number;
+    } = {
+      metadata: {
+        user_id: userId,
+        plan,
+      },
+    };
+
+    if (plan === "monthly") {
+      subscriptionData.trial_period_days = 7;
+    }
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       payment_method_types: ["card"],
@@ -40,13 +54,7 @@ export async function POST(req: Request) {
         user_id: userId,
         plan,
       },
-      ...(plan === "monthly"
-        ? {
-            subscription_data: {
-              trial_period_days: 7,
-            },
-          }
-        : {}),
+      subscription_data: subscriptionData,
       success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/invoices/new?success=true`,
       cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dashboard?canceled=true`,
     });

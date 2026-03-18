@@ -47,7 +47,7 @@ export default function HomePage() {
       }
 
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
+        const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -57,15 +57,24 @@ export default function HomePage() {
           },
         });
 
-        if (error) {
-          alert(error.message);
+        if (signUpError) {
+          alert(signUpError.message);
           return;
         }
 
-        if (data.user) {
-          alert("Compte créé ✅");
-          setSession(data.session ?? null);
+        const { data: loginData, error: loginError } =
+          await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+
+        if (loginError) {
+          alert(loginError.message);
+          return;
         }
+
+        setSession(loginData.session);
+        alert("Compte créé et connecté ✅");
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
@@ -78,6 +87,7 @@ export default function HomePage() {
         }
 
         setSession(data.session);
+        alert("Connexion réussie ✅");
       }
     } finally {
       setLoadingAuth(false);
@@ -186,60 +196,6 @@ export default function HomePage() {
             }}
           >
             🎁 Essai gratuit 7 jours
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
-              gap: 20,
-              marginTop: 24,
-            }}
-          >
-            <div
-              style={{
-                padding: 24,
-                borderRadius: 18,
-                background: "#ffffff",
-                boxShadow: "0 12px 30px rgba(0,0,0,0.06)",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>Factures rapides</h3>
-              <p style={{ color: "#64748b", lineHeight: 1.7 }}>
-                Crée des factures professionnelles en quelques secondes avec
-                calcul automatique des taxes.
-              </p>
-            </div>
-
-            <div
-              style={{
-                padding: 24,
-                borderRadius: 18,
-                background: "#ffffff",
-                boxShadow: "0 12px 30px rgba(0,0,0,0.06)",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>Branding entreprise</h3>
-              <p style={{ color: "#64748b", lineHeight: 1.7 }}>
-                Ajoute ton logo, ta signature et tes informations pour générer
-                des factures propres et crédibles.
-              </p>
-            </div>
-
-            <div
-              style={{
-                padding: 24,
-                borderRadius: 18,
-                background: "#ffffff",
-                boxShadow: "0 12px 30px rgba(0,0,0,0.06)",
-              }}
-            >
-              <h3 style={{ marginTop: 0 }}>Abonnement simple</h3>
-              <p style={{ color: "#64748b", lineHeight: 1.7 }}>
-                Plan mensuel avec essai gratuit de 7 jours ou plan annuel pour
-                économiser.
-              </p>
-            </div>
           </div>
 
           <div style={{ marginTop: 50 }}>
@@ -363,7 +319,6 @@ export default function HomePage() {
           {session ? (
             <>
               <h2 style={{ marginTop: 0, marginBottom: 8 }}>Tu es connecté ✅</h2>
-
               <p style={{ color: "#64748b", lineHeight: 1.7, marginTop: 0 }}>
                 Tu peux maintenant accéder au dashboard ou lancer ton abonnement.
               </p>
@@ -415,13 +370,7 @@ export default function HomePage() {
             </>
           ) : (
             <>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  marginBottom: 18,
-                }}
-              >
+              <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
                 <button
                   onClick={() => setMode("signup")}
                   style={{

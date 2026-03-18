@@ -725,19 +725,25 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ width: "100%", height: 320 }}>
-          <ResponsiveContainer>
-            <LineChart data={revenueChartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip
-                formatter={(value: number) => money(value)}
-                labelFormatter={(label) => `Mois : ${label}`}
-              />
-              <Line type="monotone" dataKey="amount" strokeWidth={3} dot={{ r: 4 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+  <ResponsiveContainer width="100%" height="100%">
+    <LineChart data={revenueChartData}>
+      <CartesianGrid strokeDasharray="3 3" />
+      <XAxis dataKey="month" />
+      <YAxis />
+      <Tooltip
+        formatter={(value) => money(Number(value))}
+        labelFormatter={(label) => `Mois : ${String(label)}`}
+      />
+      <Line
+        type="monotone"
+        dataKey="amount"
+        stroke="#4f46e5"
+        strokeWidth={3}
+        dot={{ r: 4 }}
+      />
+    </LineChart>
+  </ResponsiveContainer>
+</div>
       </section>
 
       <div

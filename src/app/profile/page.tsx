@@ -22,7 +22,8 @@ export default function ProfilePage() {
 
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingBusiness, setSavingBusiness] = useState(false);
+  const [savingAccount, setSavingAccount] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingSignature, setUploadingSignature] = useState(false);
 
@@ -38,6 +39,10 @@ export default function ProfilePage() {
     signature_url: "",
   });
 
+  const [accountEmail, setAccountEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+
   useEffect(() => {
     async function loadProfile() {
       const {
@@ -50,6 +55,7 @@ export default function ProfilePage() {
       }
 
       setSession(session);
+      setAccountEmail(session.user.email || "");
 
       const { data, error } = await supabase
         .from("entrepreneur_profiles")
@@ -101,9 +107,7 @@ export default function ProfilePage() {
 
       const { error: uploadError } = await supabase.storage
         .from("assets")
-        .upload(filePath, file, {
-          upsert: true,
-        });
+        .upload(filePath, file, { upsert: true });
 
       if (uploadError) {
         alert(uploadError.message);
@@ -113,17 +117,11 @@ export default function ProfilePage() {
       const { data } = supabase.storage.from("assets").getPublicUrl(filePath);
 
       if (type === "logo") {
-        setProfile((prev) => ({
-          ...prev,
-          logo_url: data.publicUrl,
-        }));
+        setProfile((prev) => ({ ...prev, logo_url: data.publicUrl }));
       }
 
       if (type === "signature") {
-        setProfile((prev) => ({
-          ...prev,
-          signature_url: data.publicUrl,
-        }));
+        setProfile((prev) => ({ ...prev, signature_url: data.publicUrl }));
       }
     } finally {
       if (type === "logo") setUploadingLogo(false);
@@ -131,14 +129,14 @@ export default function ProfilePage() {
     }
   }
 
-  async function saveProfile() {
+  async function saveBusinessProfile() {
     if (!session?.user?.id) {
       alert("Session introuvable.");
       return;
     }
 
     try {
-      setSaving(true);
+      setSavingBusiness(true);
 
       const { error } = await supabase.from("entrepreneur_profiles").upsert(
         {
@@ -154,9 +152,7 @@ export default function ProfilePage() {
           signature_url: profile.signature_url,
           updated_at: new Date().toISOString(),
         },
-        {
-          onConflict: "user_id",
-        }
+        { onConflict: "user_id" }
       );
 
       if (error) {
@@ -164,9 +160,58 @@ export default function ProfilePage() {
         return;
       }
 
-      alert("Profil sauvegardé ✅");
+      alert("Profil entreprise sauvegardé ✅");
     } finally {
-      setSaving(false);
+      setSavingBusiness(false);
+    }
+  }
+
+  async function saveAccountSettings() {
+    try {
+      setSavingAccount(true);
+
+      if (!session) {
+        alert("Session introuvable.");
+        return;
+      }
+
+      if (accountEmail && accountEmail !== session.user.email) {
+        const { error } = await supabase.auth.updateUser({
+          email: accountEmail,
+        });
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+      }
+
+      if (newPassword || confirmPassword) {
+        if (newPassword.length < 6) {
+          alert("Le mot de passe doit contenir au moins 6 caractères.");
+          return;
+        }
+
+        if (newPassword !== confirmPassword) {
+          alert("Les mots de passe ne correspondent pas.");
+          return;
+        }
+
+        const { error } = await supabase.auth.updateUser({
+          password: newPassword,
+        });
+
+        if (error) {
+          alert(error.message);
+          return;
+        }
+      }
+
+      alert("Compte mis à jour ✅ Vérifie aussi tes emails de confirmation si nécessaire.");
+      setNewPassword("");
+      setConfirmPassword("");
+    } finally {
+      setSavingAccount(false);
     }
   }
 
@@ -175,7 +220,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <main style={{ padding: 40, fontFamily: "Arial", maxWidth: 1000, margin: "auto" }}>
+    <main style={{ padding: 40, fontFamily: "Arial", maxWidth: 1100, margin: "auto" }}>
       <div
         style={{
           display: "flex",
@@ -186,9 +231,9 @@ export default function ProfilePage() {
         }}
       >
         <div>
-          <h1 style={{ marginBottom: 8 }}>Profil Entrepreneur</h1>
+          <h1 style={{ marginBottom: 8 }}>Mon profil</h1>
           <p style={{ marginTop: 0, color: "#555" }}>
-            Complète les informations de ton entreprise pour les réutiliser dans les factures.
+            Gère les informations de ton entreprise et les paramètres de ton compte.
           </p>
         </div>
 
@@ -209,165 +254,217 @@ export default function ProfilePage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: "1fr",
           gap: 24,
           marginTop: 24,
         }}
       >
-        <div
+        <section
           style={{
             display: "grid",
-            gap: 10,
-            padding: 20,
+            gap: 14,
+            padding: 24,
             border: "1px solid #e5e7eb",
-            borderRadius: 14,
+            borderRadius: 16,
             background: "#fff",
           }}
         >
-          <h3 style={{ marginTop: 0 }}>Informations entreprise</h3>
+          <h2 style={{ margin: 0 }}>Paramètres du compte</h2>
 
-          <input
-            placeholder="Nom de l’entreprise"
-            value={profile.business_name}
-            onChange={(e) => setProfile({ ...profile, business_name: e.target.value })}
-            style={{ padding: 12 }}
-          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gap: 10 }}>
+              <label>Email de connexion</label>
+              <input
+                value={accountEmail}
+                onChange={(e) => setAccountEmail(e.target.value)}
+                style={{ padding: 12 }}
+              />
+            </div>
 
-          <input
-            placeholder="Téléphone"
-            value={profile.phone}
-            onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
-            style={{ padding: 12 }}
-          />
+            <div style={{ display: "grid", gap: 10 }}>
+              <label>Email public affiché sur les factures</label>
+              <input
+                value={profile.email}
+                onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                style={{ padding: 12 }}
+              />
+            </div>
 
-          <input
-            placeholder="Email"
-            value={profile.email}
-            onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-            style={{ padding: 12 }}
-          />
+            <div style={{ display: "grid", gap: 10 }}>
+              <label>Nouveau mot de passe</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                style={{ padding: 12 }}
+              />
+            </div>
 
-          <input
-            placeholder="Adresse"
-            value={profile.address}
-            onChange={(e) => setProfile({ ...profile, address: e.target.value })}
-            style={{ padding: 12 }}
-          />
+            <div style={{ display: "grid", gap: 10 }}>
+              <label>Confirmer le mot de passe</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                style={{ padding: 12 }}
+              />
+            </div>
+          </div>
 
-          <input
-            placeholder="Code postal"
-            value={profile.postal}
-            onChange={(e) => setProfile({ ...profile, postal: e.target.value })}
-            style={{ padding: 12 }}
-          />
-        </div>
+          <div>
+            <button
+              onClick={saveAccountSettings}
+              disabled={savingAccount}
+              style={{
+                padding: "12px 18px",
+                borderRadius: 8,
+                border: "none",
+                cursor: "pointer",
+                background: "#111827",
+                color: "white",
+                fontWeight: 700,
+              }}
+            >
+              {savingAccount ? "Sauvegarde..." : "Sauvegarder le compte"}
+            </button>
+          </div>
+        </section>
 
-        <div
+        <section
           style={{
             display: "grid",
-            gap: 10,
-            padding: 20,
+            gridTemplateColumns: "1fr 1fr",
+            gap: 24,
+            padding: 24,
             border: "1px solid #e5e7eb",
-            borderRadius: 14,
+            borderRadius: 16,
             background: "#fff",
           }}
         >
-          <h3 style={{ marginTop: 0 }}>Taxes</h3>
+          <div style={{ display: "grid", gap: 10 }}>
+            <h2 style={{ marginTop: 0 }}>Entreprise</h2>
 
-          <input
-            placeholder="Numéro TPS"
-            value={profile.tps}
-            onChange={(e) => setProfile({ ...profile, tps: e.target.value })}
-            style={{ padding: 12 }}
-          />
+            <input
+              placeholder="Nom de l’entreprise"
+              value={profile.business_name}
+              onChange={(e) => setProfile({ ...profile, business_name: e.target.value })}
+              style={{ padding: 12 }}
+            />
 
-          <input
-            placeholder="Numéro TVQ"
-            value={profile.tvq}
-            onChange={(e) => setProfile({ ...profile, tvq: e.target.value })}
-            style={{ padding: 12 }}
-          />
+            <input
+              placeholder="Téléphone"
+              value={profile.phone}
+              onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+              style={{ padding: 12 }}
+            />
 
-          <h3 style={{ marginTop: 12 }}>Logo</h3>
+            <input
+              placeholder="Adresse"
+              value={profile.address}
+              onChange={(e) => setProfile({ ...profile, address: e.target.value })}
+              style={{ padding: 12 }}
+            />
 
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) uploadFile(file, "logo");
-            }}
-          />
+            <input
+              placeholder="Code postal"
+              value={profile.postal}
+              onChange={(e) => setProfile({ ...profile, postal: e.target.value })}
+              style={{ padding: 12 }}
+            />
 
-          {uploadingLogo ? <div>Upload du logo...</div> : null}
+            <input
+              placeholder="Numéro TPS"
+              value={profile.tps}
+              onChange={(e) => setProfile({ ...profile, tps: e.target.value })}
+              style={{ padding: 12 }}
+            />
 
-          {profile.logo_url ? (
-            <img
-              src={profile.logo_url}
-              alt="Logo"
-              style={{
-                width: 160,
-                maxHeight: 140,
-                objectFit: "contain",
-                border: "1px solid #ddd",
-                borderRadius: 8,
-                padding: 8,
-                background: "#fff",
+            <input
+              placeholder="Numéro TVQ"
+              value={profile.tvq}
+              onChange={(e) => setProfile({ ...profile, tvq: e.target.value })}
+              style={{ padding: 12 }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            <h2 style={{ marginTop: 0 }}>Branding</h2>
+
+            <label>Logo</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadFile(file, "logo");
               }}
             />
-          ) : (
-            <div style={{ color: "#777" }}>Aucun logo téléchargé</div>
-          )}
+            {uploadingLogo ? <div>Upload du logo...</div> : null}
+            {profile.logo_url ? (
+              <img
+                src={profile.logo_url}
+                alt="Logo"
+                style={{
+                  width: 160,
+                  maxHeight: 140,
+                  objectFit: "contain",
+                  border: "1px solid #ddd",
+                  borderRadius: 8,
+                  padding: 8,
+                  background: "#fff",
+                }}
+              />
+            ) : (
+              <div style={{ color: "#777" }}>Aucun logo téléchargé</div>
+            )}
 
-          <h3 style={{ marginTop: 12 }}>Signature</h3>
-
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) uploadFile(file, "signature");
-            }}
-          />
-
-          {uploadingSignature ? <div>Upload de la signature...</div> : null}
-
-          {profile.signature_url ? (
-            <img
-              src={profile.signature_url}
-              alt="Signature"
-              style={{
-                width: 200,
-                maxHeight: 100,
-                objectFit: "contain",
-                border: "1px solid #ddd",
-                borderRadius: 8,
-                padding: 8,
-                background: "#fff",
+            <label style={{ marginTop: 12 }}>Signature</label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) uploadFile(file, "signature");
               }}
             />
-          ) : (
-            <div style={{ color: "#777" }}>Aucune signature téléchargée</div>
-          )}
-        </div>
-      </div>
+            {uploadingSignature ? <div>Upload de la signature...</div> : null}
+            {profile.signature_url ? (
+              <img
+                src={profile.signature_url}
+                alt="Signature"
+                style={{
+                  width: 200,
+                  maxHeight: 100,
+                  objectFit: "contain",
+                  border: "1px solid #ddd",
+                  borderRadius: 8,
+                  padding: 8,
+                  background: "#fff",
+                }}
+              />
+            ) : (
+              <div style={{ color: "#777" }}>Aucune signature téléchargée</div>
+            )}
+          </div>
 
-      <div style={{ marginTop: 30 }}>
-        <button
-          onClick={saveProfile}
-          disabled={saving}
-          style={{
-            padding: "12px 18px",
-            borderRadius: 8,
-            border: "none",
-            cursor: "pointer",
-            background: "#111827",
-            color: "white",
-            fontWeight: 700,
-          }}
-        >
-          {saving ? "Sauvegarde..." : "Sauvegarder le profil"}
-        </button>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <button
+              onClick={saveBusinessProfile}
+              disabled={savingBusiness}
+              style={{
+                padding: "12px 18px",
+                borderRadius: 8,
+                border: "none",
+                cursor: "pointer",
+                background: "#4f46e5",
+                color: "white",
+                fontWeight: 700,
+              }}
+            >
+              {savingBusiness ? "Sauvegarde..." : "Sauvegarder le profil entreprise"}
+            </button>
+          </div>
+        </section>
       </div>
     </main>
   );
