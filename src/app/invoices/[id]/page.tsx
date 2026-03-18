@@ -245,39 +245,7 @@ export default function InvoiceDetailsPage() {
     } finally {
       setSavingStatus(false);
     }
-  }
 
-  async function sendReminder() {
-    if (!invoice?.id) return;
-
-    try {
-      setSendingReminder(true);
-
-      const res = await fetch("/api/reminder", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          invoiceId: invoice.id,
-        }),
-      });
-
-      const rawText = await res.text();
-      const data = rawText ? JSON.parse(rawText) : {};
-
-      if (!res.ok) {
-        alert(data.error || "Erreur envoi rappel");
-        return;
-      }
-
-      alert("Rappel envoyé au client ✅");
-    } catch (error) {
-      console.error("sendReminder error:", error);
-      alert("Erreur envoi rappel");
-    } finally {
-      setSendingReminder(false);
-    }
   }
 
   async function downloadPDF() {
