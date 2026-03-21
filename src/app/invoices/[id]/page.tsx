@@ -1,75 +1,74 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useParams, useRouter } from "next/navigation";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 
-type InvoiceData = {
+type InvoiceItem = {
+  title?: string;
+  description?: string;
+  quantity?: number;
+  price?: number;
+  total?: number;
+};
+
+type PartyInfo = {
+  business_name?: string;
+  name?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  postal?: string;
+  logo_url?: string;
+  signature_url?: string;
+  payment_methods?: string[];
+};
+
+type Totals = {
+  subtotal?: number;
+  tps?: number;
+  tvq?: number;
+  grandTotal?: number;
+};
+
+type InvoiceRow = {
   id: string;
   invoice_number: string;
   invoice_date: string;
-  payment_date: string | null;
-  status: string;
-  use_taxes: boolean;
+  due_date?: string | null;
+  payment_date?: string | null;
+  status: "paid" | "unpaid" | "partial";
   amount_paid?: number | null;
-  client: {
-    name?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-    postal?: string;
-  };
-  entrepreneur: {
-    name?: string;
-    phone?: string;
-    email?: string;
-    address?: string;
-    postal?: string;
-    logo_url?: string;
-    signature_url?: string;
-    tps?: string;
-    tvq?: string;
-  };
-  items: Array<{
-    article: string;
-    details: string;
-    qty: number;
-    price: number;
-  }>;
-  totals: {
-    subtotal?: number;
-    tps?: number;
-    tvq?: number;
-    grandTotal?: number;
-  };
   notes?: string | null;
-};
-
-type EntrepreneurProfile = {
-  logo_url: string | null;
-  signature_url: string | null;
+  pdf_url?: string | null;
+  client?: PartyInfo | null;
+  entrepreneur?: PartyInfo | null;
+  items?: InvoiceItem[] | null;
+  totals?: Totals | null;
 };
 
 function money(n?: number) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
-export default function InvoiceDetailsPage() {
-  const router = useRouter();
-  const params = useParams();
-  const paperRef = useRef<HTMLDivElement | null>(null);
+function safeArray<T>(value: T[] | null | undefined): T[] {
+  return Array.isArray(value) ? value : [];
+}
 
+export default function InvoiceDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const id = params?.id as string;
+
+  const [invoice, setInvoice] = useState<InvoiceRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingStatus, setSavingStatus] = useState(false);
-  const [sendingReminder, setSendingReminder] = useState(false);
-  const [invoice, setInvoice] = useState<InvoiceData | null>(null);
-  const [profileBranding, setProfileBranding] = useState<EntrepreneurProfile | null>(null);
-  const [amountPaid, setAmountPaid] = useState(0);
+  const [amountPaidInput, setAmountPaidInput] = useState("");
 
   useEffect(() => {
     async function loadInvoice() {
+      if (!id) return;
+
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -79,12 +78,10 @@ export default function InvoiceDetailsPage() {
         return;
       }
 
-      const invoiceId = Array.isArray(params.id) ? params.id[0] : params.id;
-
       const { data, error } = await supabase
         .from("invoices")
         .select("*")
-        .eq("id", invoiceId)
+        .eq("id", id)
         .eq("user_id", session.user.id)
         .maybeSingle();
 
@@ -95,75 +92,68 @@ export default function InvoiceDetailsPage() {
       }
 
       if (!data) {
-        alert("Facture introuvable");
+        alert("Facture introuvable.");
         router.push("/invoices");
         return;
       }
 
-      const inv = data as InvoiceData;
-      setInvoice(inv);
-      setAmountPaid(Number(inv.amount_paid || 0));
-
-      const needsBrandingFallback =
-        !inv.entrepreneur?.logo_url || !inv.entrepreneur?.signature_url;
-
-      if (needsBrandingFallback) {
-        const { data: prof } = await supabase
-          .from("entrepreneur_profiles")
-          .select("logo_url, signature_url")
-          .eq("user_id", session.user.id)
-          .maybeSingle();
-
-        setProfileBranding(prof as EntrepreneurProfile | null);
-      }
-
+      const normalized = data as InvoiceRow;
+      setInvoice(normalized);
+      setAmountPaidInput(String(Number(normalized.amount_paid || 0)));
       setLoading(false);
     }
 
     loadInvoice();
-  }, [params.id, router]);
+  }, [id, router]);
 
-  const effectiveLogoUrl = useMemo(() => {
-    return invoice?.entrepreneur?.logo_url || profileBranding?.logo_url || "";
-  }, [invoice, profileBranding]);
+  const subtotal = Number(invoice?.totals?.subtotal || 0);
+  const tps = Number(invoice?.totals?.tps || 0);
+  const tvq = Number(invoice?.totals?.tvq || 0);
+  const grandTotal = Number(invoice?.totals?.grandTotal || 0);
+  const amountPaid = Number(invoice?.amount_paid || 0);
+  const remainingBalance = Math.max(0, grandTotal - amountPaid);
 
-  const effectiveSignatureUrl = useMemo(() => {
-    return invoice?.entrepreneur?.signature_url || profileBranding?.signature_url || "";
-  }, [invoice, profileBranding]);
-
-  const paymentData = useMemo(() => {
-    try {
-      return invoice?.notes ? JSON.parse(invoice.notes) : null;
-    } catch {
-      return null;
+  const paymentMethodsText = useMemo(() => {
+    const methods = safeArray(invoice?.entrepreneur?.payment_methods);
+    if (!methods.length) {
+      return "À convenir avec l’entrepreneur";
     }
+    return methods.join(" • ");
   }, [invoice]);
 
-  const balance = useMemo(() => {
-    return (invoice?.totals?.grandTotal || 0) - (amountPaid || 0);
-  }, [invoice, amountPaid]);
-
-  async function updateInvoiceStatus(nextStatus: "unpaid" | "partial" | "paid") {
-    if (!invoice?.id) return;
+  async function updateInvoiceStatus(
+    nextStatus: "paid" | "unpaid" | "partial",
+    nextAmountPaid?: number
+  ) {
+    if (!invoice) return;
 
     try {
       setSavingStatus(true);
 
       const payload: {
-        status: "unpaid" | "partial" | "paid";
-        payment_date: string | null;
+        status: "paid" | "unpaid" | "partial";
         amount_paid?: number;
+        payment_date?: string | null;
       } = {
         status: nextStatus,
-        payment_date: nextStatus === "paid" ? new Date().toISOString().slice(0, 10) : null,
       };
 
-      if (nextStatus === "unpaid") {
-        payload.amount_paid = 0;
+      if (typeof nextAmountPaid === "number") {
+        payload.amount_paid = nextAmountPaid;
       }
 
       if (nextStatus === "paid") {
-        payload.amount_paid = Number(invoice.totals?.grandTotal || 0);
+        payload.payment_date = new Date().toISOString().slice(0, 10);
+        payload.amount_paid = grandTotal;
+      }
+
+      if (nextStatus === "unpaid") {
+        payload.payment_date = null;
+        payload.amount_paid = 0;
+      }
+
+      if (nextStatus === "partial") {
+        payload.payment_date = null;
       }
 
       const { error } = await supabase
@@ -180,16 +170,21 @@ export default function InvoiceDetailsPage() {
         prev
           ? {
               ...prev,
-              status: nextStatus,
-              payment_date: payload.payment_date,
+              status: payload.status,
               amount_paid:
-                payload.amount_paid !== undefined ? payload.amount_paid : prev.amount_paid,
+                typeof payload.amount_paid === "number"
+                  ? payload.amount_paid
+                  : prev.amount_paid,
+              payment_date:
+                payload.payment_date !== undefined
+                  ? payload.payment_date
+                  : prev.payment_date,
             }
           : prev
       );
 
       if (payload.amount_paid !== undefined) {
-        setAmountPaid(payload.amount_paid);
+        setAmountPaidInput(String(payload.amount_paid));
       }
     } finally {
       setSavingStatus(false);
@@ -197,163 +192,115 @@ export default function InvoiceDetailsPage() {
   }
 
   async function markPartialPayment() {
-    if (!invoice?.id) return;
+    if (!invoice) return;
 
-    const paid = window.prompt("Montant déjà payé :", String(amountPaid || 0));
-    if (paid === null) return;
+    const parsed = Number(amountPaidInput);
 
-    const value = Number(paid);
-
-    if (Number.isNaN(value) || value < 0) {
-      alert("Montant invalide.");
+    if (Number.isNaN(parsed) || parsed < 0) {
+      alert("Entre un montant payé valide.");
       return;
     }
 
-    if (value >= Number(invoice.totals?.grandTotal || 0)) {
-      await updateInvoiceStatus("paid");
+    if (parsed >= grandTotal) {
+      await updateInvoiceStatus("paid", grandTotal);
       return;
     }
 
-    try {
-      setSavingStatus(true);
-
-      const { error } = await supabase
-        .from("invoices")
-        .update({
-          status: "partial",
-          amount_paid: value,
-          payment_date: null,
-        })
-        .eq("id", invoice.id);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
-
-      setAmountPaid(value);
-      setInvoice((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: "partial",
-              amount_paid: value,
-              payment_date: null,
-            }
-          : prev
-      );
-    } finally {
-      setSavingStatus(false);
-    }
-
+    await updateInvoiceStatus("partial", parsed);
   }
 
-  async function downloadPDF() {
-    if (!paperRef.current) return;
-
-    const canvas = await html2canvas(paperRef.current, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-    });
-
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf = new jsPDF("p", "mm", "a4");
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-    if (imgHeight <= pageHeight) {
-      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
-    } else {
-      let remainingHeight = imgHeight;
-      let position = 0;
-
-      while (remainingHeight > 0) {
-        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-        remainingHeight -= pageHeight;
-        position -= pageHeight;
-
-        if (remainingHeight > 0) pdf.addPage();
-      }
+  function downloadPdf() {
+    if (invoice?.pdf_url) {
+      window.open(invoice.pdf_url, "_blank");
+      return;
     }
 
-    pdf.save(`facture_${invoice?.invoice_number || "detail"}.pdf`);
-  }
-
-  function statusBadge(status?: string) {
-    if (status === "paid") {
-      return { label: "Payée", bg: "#dcfce7", color: "#166534" };
-    }
-    if (status === "partial") {
-      return { label: "Paiement incomplet", bg: "#fef3c7", color: "#92400e" };
-    }
-    return { label: "Impayée", bg: "#fee2e2", color: "#991b1b" };
+    window.print();
   }
 
   if (loading) {
     return <main style={{ padding: 32, fontFamily: "Arial" }}>Chargement...</main>;
   }
 
-  if (!invoice) return null;
+  if (!invoice) {
+    return <main style={{ padding: 32, fontFamily: "Arial" }}>Facture introuvable.</main>;
+  }
 
-  const badge = statusBadge(invoice.status);
+  const items = safeArray(invoice.items);
 
   return (
-    <main style={{ padding: 32, fontFamily: "Arial", maxWidth: 1000, margin: "0 auto" }}>
+    <main
+      style={{
+        padding: 32,
+        fontFamily: "Arial, sans-serif",
+        maxWidth: 1100,
+        margin: "0 auto",
+      }}
+    >
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
-          alignItems: "center",
+          alignItems: "flex-start",
           gap: 12,
           flexWrap: "wrap",
+          marginBottom: 20,
         }}
       >
         <div>
-          <h1>Détail facture #{invoice.invoice_number}</h1>
-          <p style={{ marginTop: 0 }}>Date : {invoice.invoice_date}</p>
+          <h1 style={{ marginBottom: 8 }}>Détail facture #{invoice.invoice_number}</h1>
+          <div style={{ color: "#555" }}>Date : {invoice.invoice_date}</div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={() => router.push("/invoices")} style={{ padding: "10px 14px" }}>
+          <button
+            onClick={() => router.push("/invoices")}
+            style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer" }}
+          >
             ← Mes factures
           </button>
-          <button onClick={downloadPDF} style={{ padding: "10px 14px" }}>
+
+          <button
+            onClick={downloadPdf}
+            style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer" }}
+          >
             Télécharger PDF
           </button>
         </div>
       </div>
 
-      <div
-        style={{
-          marginTop: 16,
-          marginBottom: 20,
-          display: "flex",
-          gap: 10,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
         <span
           style={{
             display: "inline-block",
             padding: "8px 12px",
             borderRadius: 999,
-            background: badge.bg,
-            color: badge.color,
+            background:
+              invoice.status === "paid"
+                ? "#dcfce7"
+                : invoice.status === "partial"
+                ? "#fef3c7"
+                : "#fee2e2",
+            color:
+              invoice.status === "paid"
+                ? "#166534"
+                : invoice.status === "partial"
+                ? "#92400e"
+                : "#991b1b",
             fontWeight: 700,
           }}
         >
-          {badge.label}
+          {invoice.status === "paid"
+            ? "Payée"
+            : invoice.status === "partial"
+            ? "Paiement incomplet"
+            : "Impayée"}
         </span>
 
         <button
           onClick={() => updateInvoiceStatus("unpaid")}
           disabled={savingStatus}
-          style={{ padding: "10px 14px" }}
+          style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer" }}
         >
           Marquer impayée
         </button>
@@ -361,7 +308,7 @@ export default function InvoiceDetailsPage() {
         <button
           onClick={markPartialPayment}
           disabled={savingStatus}
-          style={{ padding: "10px 14px" }}
+          style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer" }}
         >
           Paiement incomplet
         </button>
@@ -369,115 +316,160 @@ export default function InvoiceDetailsPage() {
         <button
           onClick={() => updateInvoiceStatus("paid")}
           disabled={savingStatus}
-          style={{ padding: "10px 14px" }}
+          style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer" }}
         >
           Marquer payée
         </button>
-
-        <button
-          onClick={sendReminder}
-          disabled={sendingReminder || invoice.status === "paid"}
-          style={{ padding: "10px 14px" }}
-        >
-          {sendingReminder ? "Envoi..." : "Envoyer un rappel"}
-        </button>
       </div>
 
-      <hr style={{ margin: "20px 0" }} />
+      <div
+        style={{
+          marginBottom: 20,
+          display: "flex",
+          gap: 12,
+          alignItems: "center",
+          flexWrap: "wrap",
+          background: "#fff",
+          border: "1px solid #e5e7eb",
+          borderRadius: 12,
+          padding: 16,
+        }}
+      >
+        <label style={{ fontWeight: 700 }}>Montant payé :</label>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={amountPaidInput}
+          onChange={(e) => setAmountPaidInput(e.target.value)}
+          style={{ padding: 10, width: 180 }}
+        />
+        <div style={{ color: "#555" }}>
+          Solde restant : <strong>{money(remainingBalance)}</strong>
+        </div>
+      </div>
 
       <div
-        ref={paperRef}
         style={{
-          background: "#fff",
           border: "1px solid #ddd",
-          borderRadius: 10,
-          padding: 22,
+          borderRadius: 12,
+          background: "#fff",
+          padding: 28,
         }}
       >
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: 12,
+            gap: 20,
             alignItems: "flex-start",
+            borderBottom: "2px solid #222",
+            paddingBottom: 18,
+            marginBottom: 24,
           }}
         >
           <div>
-            <div style={{ fontSize: 36, fontWeight: 900 }}>FACTURE</div>
-            <div style={{ marginTop: 6 }}>
-              <div>
-                Facture n. <strong>{invoice.invoice_number}</strong>
-              </div>
-              <div>
-                Date <strong>{invoice.invoice_date}</strong>
-              </div>
+            <div style={{ fontSize: 56, fontWeight: 900, lineHeight: 1 }}>FACTURE</div>
+            <div style={{ marginTop: 10, fontSize: 26 }}>
+              Facture n. <strong>{invoice.invoice_number}</strong>
+            </div>
+            <div style={{ fontSize: 26 }}>
+              Date <strong>{invoice.invoice_date}</strong>
             </div>
           </div>
 
-          {effectiveLogoUrl ? (
+          {invoice.entrepreneur?.logo_url ? (
             <img
-              src={effectiveLogoUrl}
+              src={invoice.entrepreneur.logo_url}
               alt="Logo"
-              style={{ maxWidth: 140, maxHeight: 90, objectFit: "contain" }}
+              style={{
+                width: 140,
+                maxHeight: 100,
+                objectFit: "contain",
+              }}
             />
           ) : null}
         </div>
 
-        <hr style={{ border: 0, borderTop: "2px solid #111", margin: "16px 0" }} />
-
-        <div style={{ lineHeight: 1.35 }}>
-          <div style={{ fontSize: 18, fontWeight: 800 }}>{invoice.client?.name || "—"}</div>
-          <div>{invoice.client?.phone || "—"}</div>
-          <div>{invoice.client?.address || "—"}</div>
-          <div>{invoice.client?.email || "—"}</div>
-          <div>{invoice.client?.postal || "—"}</div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr",
+            gap: 24,
+            marginBottom: 24,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 34, fontWeight: 800, marginBottom: 10 }}>
+              {invoice.client?.name || "Client"}
+            </div>
+            {invoice.client?.phone ? <div>{invoice.client.phone}</div> : null}
+            {invoice.client?.address ? <div>{invoice.client.address}</div> : null}
+            {invoice.client?.email ? <div>{invoice.client.email}</div> : null}
+            {invoice.client?.postal ? <div>{invoice.client.postal}</div> : null}
+          </div>
         </div>
 
-        <hr style={{ border: 0, borderTop: "2px solid #111", margin: "16px 0" }} />
-
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: "left", borderBottom: "2px solid #111", padding: 8 }}>Article</th>
-              <th style={{ textAlign: "left", borderBottom: "2px solid #111", padding: 8 }}>Description</th>
-              <th style={{ textAlign: "right", borderBottom: "2px solid #111", padding: 8 }}>Qté</th>
-              <th style={{ textAlign: "right", borderBottom: "2px solid #111", padding: 8 }}>Prix</th>
-              <th style={{ textAlign: "right", borderBottom: "2px solid #111", padding: 8 }}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoice.items?.map((it, i) => {
-              const lineTotal = (Number(it.qty) || 0) * (Number(it.price) || 0);
-              return (
-                <tr key={i}>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>{it.article || "—"}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>{it.details || "—"}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "right" }}>{it.qty}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "right" }}>{money(it.price)}</td>
-                  <td style={{ borderBottom: "1px solid #eee", padding: 8, textAlign: "right" }}>{money(lineTotal)}</td>
+        <div style={{ borderTop: "2px solid #222", paddingTop: 20, marginBottom: 20 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
+                <th style={{ padding: "10px 8px" }}>Article</th>
+                <th style={{ padding: "10px 8px" }}>Description</th>
+                <th style={{ padding: "10px 8px" }}>Qté</th>
+                <th style={{ padding: "10px 8px" }}>Prix</th>
+                <th style={{ padding: "10px 8px" }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, index) => (
+                <tr key={index} style={{ borderBottom: "1px solid #eee" }}>
+                  <td style={{ padding: "10px 8px" }}>{item.title || ""}</td>
+                  <td style={{ padding: "10px 8px" }}>{item.description || ""}</td>
+                  <td style={{ padding: "10px 8px" }}>{item.quantity || 0}</td>
+                  <td style={{ padding: "10px 8px" }}>{money(item.price)}</td>
+                  <td style={{ padding: "10px 8px" }}>{money(item.total)}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
-        <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
-          <div style={{ width: 340, borderTop: "2px solid #111", paddingTop: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: 30,
+          }}
+        >
+          <div style={{ width: 360 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "8px 0",
+              }}
+            >
               <span>Sous-total :</span>
-              <strong>{money(invoice.totals?.subtotal)}</strong>
-            </div>
-
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
-              <span>Taxes :</span>
-              <strong>{money((invoice.totals?.tps || 0) + (invoice.totals?.tvq || 0))}</strong>
+              <strong>{money(subtotal)}</strong>
             </div>
 
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                padding: "6px 0",
+                padding: "8px 0",
+              }}
+            >
+              <span>Impôts :</span>
+              <strong>{money(tps + tvq)}</strong>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "8px 0",
               }}
             >
               <span>Montant payé :</span>
@@ -488,63 +480,61 @@ export default function InvoiceDetailsPage() {
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                padding: "6px 0",
-                color: balance > 0 ? "#b91c1c" : "#166534",
-                fontWeight: 700,
+                padding: "8px 0",
+                borderTop: "2px solid #222",
+                marginTop: 8,
               }}
             >
               <span>Solde restant :</span>
-              <strong>{money(balance)}</strong>
+              <strong>{money(remainingBalance)}</strong>
             </div>
 
             <div
               style={{
                 display: "flex",
                 justifyContent: "space-between",
-                padding: "10px 0",
-                borderTop: "2px solid #111",
-                fontSize: 18,
+                padding: "12px 0 0",
+                fontSize: 30,
               }}
             >
               <span>Total :</span>
-              <strong>{money(invoice.totals?.grandTotal)}</strong>
+              <strong>{money(grandTotal)}</strong>
             </div>
           </div>
         </div>
 
-        <div style={{ marginTop: 26, fontWeight: 800 }}>Merci pour votre confiance !</div>
-
-        <hr style={{ border: 0, borderTop: "2px solid #111", margin: "16px 0" }} />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <div>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>Informations de paiement</div>
-            <div>Mode de paiement : {paymentData?.paymentMethod || "—"}</div>
-            <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-              {paymentData?.paymentInstructions || "Aucune instruction de paiement"}
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>Contact Entrepreneur</div>
-            <div>{invoice.entrepreneur?.name || "—"}</div>
-            <div>{invoice.entrepreneur?.phone || "—"}</div>
-            <div>{invoice.entrepreneur?.email || "—"}</div>
-            <div>{invoice.entrepreneur?.address || "—"}</div>
-            <div>{invoice.entrepreneur?.postal || "—"}</div>
-          </div>
+        <div style={{ marginBottom: 20, fontSize: 20, fontWeight: 800 }}>
+          Merci pour votre confiance !
         </div>
 
-        {effectiveSignatureUrl ? (
-          <div style={{ marginTop: 24 }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>Signature</div>
-            <img
-              src={effectiveSignatureUrl}
-              alt="Signature"
-              style={{ maxWidth: 180, maxHeight: 80, objectFit: "contain" }}
-            />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 30,
+            borderTop: "2px solid #222",
+            paddingTop: 20,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>
+              Informations de paiement
+            </div>
+            <div>{paymentMethodsText}</div>
+            {invoice.notes ? <div style={{ marginTop: 12 }}>{invoice.notes}</div> : null}
           </div>
-        ) : null}
+
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 10 }}>
+              Contact Entrepreneur
+            </div>
+            <div>{invoice.entrepreneur?.business_name || invoice.entrepreneur?.name || ""}</div>
+            {invoice.entrepreneur?.phone ? <div>{invoice.entrepreneur.phone}</div> : null}
+            {invoice.entrepreneur?.email ? <div>{invoice.entrepreneur.email}</div> : null}
+            {invoice.entrepreneur?.address ? <div>{invoice.entrepreneur.address}</div> : null}
+            {invoice.entrepreneur?.postal ? <div>{invoice.entrepreneur.postal}</div> : null}
+          </div>
+        </div>
       </div>
     </main>
   );
