@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import {
   ResponsiveContainer,
@@ -58,7 +58,6 @@ function monthLabel(date: Date) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [session, setSession] = useState<Session | null>(null);
   const [subscription, setSubscription] = useState<SubscriptionRow | null>(null);
@@ -69,8 +68,16 @@ export default function DashboardPage() {
   const [loadingYearly, setLoadingYearly] = useState(false);
   const [loadingPortal, setLoadingPortal] = useState(false);
 
-  const success = searchParams.get("success");
-  const canceled = searchParams.get("canceled");
+  const [success, setSuccess] = useState<string | null>(null);
+  const [canceled, setCanceled] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    setSuccess(params.get("success"));
+    setCanceled(params.get("canceled"));
+  }, []);
 
   const isPremium =
     (subscription?.status === "active" || subscription?.status === "trialing") &&
@@ -725,25 +732,25 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ width: "100%", height: 320 }}>
-  <ResponsiveContainer width="100%" height="100%">
-    <LineChart data={revenueChartData}>
-      <CartesianGrid strokeDasharray="3 3" />
-      <XAxis dataKey="month" />
-      <YAxis />
-      <Tooltip
-        formatter={(value) => money(Number(value))}
-        labelFormatter={(label) => `Mois : ${String(label)}`}
-      />
-      <Line
-        type="monotone"
-        dataKey="amount"
-        stroke="#4f46e5"
-        strokeWidth={3}
-        dot={{ r: 4 }}
-      />
-    </LineChart>
-  </ResponsiveContainer>
-</div>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={revenueChartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip
+                formatter={(value) => money(Number(value))}
+                labelFormatter={(label) => `Mois : ${String(label)}`}
+              />
+              <Line
+                type="monotone"
+                dataKey="amount"
+                stroke="#4f46e5"
+                strokeWidth={3}
+                dot={{ r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </section>
 
       <div
