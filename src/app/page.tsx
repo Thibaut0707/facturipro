@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import type { Session } from "@supabase/supabase-js";
 
-export default function HomePage() {
+function HomePageContent() {
   const router = useRouter();
 
   const [session, setSession] = useState<Session | null>(null);
@@ -19,11 +19,14 @@ export default function HomePage() {
 
   useEffect(() => {
     async function loadSession() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const { data, error } = await supabase.auth.getSession();
 
-      setSession(session);
+      if (error) {
+        console.error("Session error:", error.message);
+        return;
+      }
+
+      setSession(data.session);
     }
 
     loadSession();
@@ -89,6 +92,9 @@ export default function HomePage() {
         setSession(data.session);
         alert("Connexion réussie ✅");
       }
+    } catch (error) {
+      console.error("Auth error:", error);
+      alert("Impossible de contacter Supabase. Vérifie tes variables Vercel et l’URL Supabase.");
     } finally {
       setLoadingAuth(false);
     }
@@ -318,7 +324,10 @@ export default function HomePage() {
         >
           {session ? (
             <>
-              <h2 style={{ marginTop: 0, marginBottom: 8 }}>Tu es connecté ✅</h2>
+              <h2 style={{ marginTop: 0, marginBottom: 8 }}>
+                Tu es connecté ✅
+              </h2>
+
               <p style={{ color: "#64748b", lineHeight: 1.7, marginTop: 0 }}>
                 Tu peux maintenant accéder au dashboard ou lancer ton abonnement.
               </p>
@@ -415,11 +424,12 @@ export default function HomePage() {
               </h2>
 
               <p style={{ color: "#64748b", lineHeight: 1.7, marginTop: 0 }}>
-                Connecte-toi ou crée ton compte pour activer ton essai gratuit et utiliser l’application.
+                Connecte-toi ou crée ton compte pour activer ton essai gratuit
+                et utiliser l’application.
               </p>
 
               <div style={{ display: "grid", gap: 12, marginTop: 22 }}>
-                {mode === "signup" ? (
+                {mode === "signup" && (
                   <input
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
@@ -430,7 +440,7 @@ export default function HomePage() {
                       border: "1px solid #dbe4f0",
                     }}
                   />
-                ) : null}
+                )}
 
                 <input
                   value={email}
@@ -482,5 +492,13 @@ export default function HomePage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<main style={{ padding: 32 }}>Chargement...</main>}>
+      <HomePageContent />
+    </Suspense>
   );
 }
