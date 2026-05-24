@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
@@ -65,7 +65,7 @@ function padInvoice(n: number) {
   return String(n).padStart(4, "0");
 }
 
-export default function NewInvoicePage() {
+function NewInvoicePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const paperRef = useRef<HTMLDivElement | null>(null);
@@ -749,5 +749,13 @@ export default function NewInvoicePage() {
         ) : null}
       </div>
     </main>
+  );
+}
+
+export default function NewInvoicePage() {
+  return (
+    <Suspense fallback={<main style={{ padding: 32 }}>Chargement...</main>}>
+      <NewInvoicePageContent />
+    </Suspense>
   );
 }
